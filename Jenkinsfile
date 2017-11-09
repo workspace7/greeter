@@ -1,29 +1,45 @@
 node("mavenwithnexus") {
   checkout scm
 
-  def canaryPromptMessage = 'Would you like to do Canary or Normal Release ?'
+  def isCanary = false
+  def isTimeout = false
 
-  def isCanary =  input(message: canaryPromptMessage, ok: 'Yes',
-    parameters: [booleanParam(defaultValue: false,
-    description: 'If you want to do Canary Deployment press Yes', name:'Yes?')])
-
-  if(isCanary) {
-
-    stage("Test") {
-      sh "mvn -B  test"
+  try {
+    timeout(time: 24,  unit: 'HOURS') {
+      isCanary = input( id:'CanaryDeployment', message: 'Do a Canary Release ?',
+      parameters: [
+        [$class: 'BooleanParameterDefinition', defaultValue: true, description: '',
+                  name: 'Please confirm to do a canary release']
+      ])
     }
+  }catch(err) {
+     def user = err.getCauses()[0].getUser()
+     if('SYSTEM' == user.toString()){
+       isTimeout = true
+     }else{
+        isCanary  = false
+        echo "Aborted by: [${user}]"
+     }
+  }
 
-    stage("Deploy") {
-        sh "mvn  -DskipTests clean -Pcanary fabric8:deploy"
-    }
+  if(isTimeout) {
+     echo 'Since no confirmation recevied on time, doing nothing'
+     currentBuild.result  = 'FAILURE'
   }else{
-
-    stage("Test") {
-      sh "mvn -B  test"
-    }
-
-    stage("Deploy") {
-        sh "mvn  -DskipTests clean fabric8:deploy"
+    if(isCanary) {
+      stage("Test") {
+        sh "mvn -B  test"
+      }
+      stage("Deploy") {
+          sh "mvn  -DskipTests clean -Pcanary fabric8:deploy"
+      }
+    }else{
+      stage("Test") {
+        sh "mvn -B  test"
+      }
+      stage("Deploy") {
+          sh "mvn  -DskipTests clean fabric8:deploy"
+      }
     }
   }
 
